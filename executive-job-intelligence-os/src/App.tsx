@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
-import { Job } from './types.ts';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -9,19 +8,55 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase =
   supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
+type Job = {
+  id: string;
+  title: string;
+  description: string;
+  company_name?: string;
+  geography?: string;
+  job_source?: string;
+  role_category?: string;
+  created_at: string;
+  match_score?: number | null;
+  ats_score?: number | null;
+  leadership_score?: number | null;
+  risk_score?: number | null;
+  recommendation?: string | null;
+  analysis?: string | null;
+  status?: string | null;
+};
+
+type Profile = {
+  id: string;
+  profile_name: string;
+  executive_summary?: string;
+  industries?: string;
+  skills?: string;
+  leadership_themes?: string;
+  achievements?: string;
+  constraints?: string;
+  preferred_geographies?: string;
+  work_modes?: string;
+  created_at?: string;
+};
+
 export default function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [analyzingJobId, setAnalyzingJobId] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
   const [title, setTitle] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [geography, setGeography] = useState('');
   const [jobSource, setJobSource] = useState('');
   const [roleCategory, setRoleCategory] = useState('');
   const [description, setDescription] = useState('');
-  const [error, setError] = useState('');
 
-  const fetchJobs = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
 
@@ -29,24 +64,40 @@ export default function App() {
         throw new Error('Supabase environment variables are missing.');
       }
 
-      const { data, error } = await supabase
+      const jobsResult = await supabase
         .from('jobs')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (jobsResult.error) throw jobsResult.error;
 
-      setJobs(data || []);
+      const profilesResult = await supabase
+        .from('profiles')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (profilesResult.error) throw profilesResult.error;
+
+      const loadedJobs = jobsResult.data || [];
+      const loadedProfiles = profilesResult.data || [];
+
+      setJobs(loadedJobs);
+      setProfiles(loadedProfiles);
+
+      if (loadedProfiles.length > 0) {
+        setSelectedProfileId(loadedProfiles[0].id);
+      }
+
       setError('');
     } catch (err: any) {
-      setError(err.message || 'Failed to load jobs.');
+      setError(err.message || 'Failed to load data.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchJobs();
+    loadData();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -61,18 +112,19 @@ export default function App() {
         throw new Error('Supabase environment variables are missing.');
       }
 
-      const newJob = {
-        title,
-        description,
-        company_name: companyName,
-        geography,
-        job_source: jobSource,
-        role_category: roleCategory,
-      };
-
       const { data, error } = await supabase
         .from('jobs')
-        .insert([newJob])
+        .insert([
+          {
+            title,
+            description,
+            company_name: companyName,
+            geography,
+            job_source: jobSource,
+            role_category: roleCategory,
+            status: 'Ingested',
+          },
+        ])
         .select()
         .single();
 
@@ -94,13 +146,84 @@ export default function App() {
     }
   };
 
-  const formatDate = (isoString: string) => {
-    const d = new Date(isoString);
+  const analyzeJob = async (job: Job) => {
+    try {
+      if (!supabase) {
+        throw new Error('Supabase environment variables are missing.');
+      }
+
+      const selectedProfile = profiles.find(
+        (profile) => profile.id === selectedProfileId
+      );
+
+      if (!selectedProfile) {
+        throw new Error('Please select a profile first.');
+      }
+
+      setAnalyzingJobId(job.id);
+
+      const { data, error } = await supabase.functions.invoke('analyze-job', {
+        body: {
+          job_id: job.id,
+          title: job.title,
+          company_name: job.company_name || '',
+          geography: job.geography || '',
+          role_category: job.role_category || '',
+          job_source: job.job_source || '',
+          description: job.description || '',
+          profile: selectedProfile,
+        },
+      });
+
+      if (error) throw error;
+
+      if (!data?.success) {
+        throw new Error(data?.error || 'Analysis failed.');
+      }
+
+      const result = data.result;
+
+      const { data: updatedJob, error: updateError } = await supabase
+        .from('jobs')
+        .update({
+          match_score: result.match_score,
+          ats_score: result.ats_score,
+          leadership_score: result.leadership_score,
+          risk_score: result.risk_score,
+          recommendation: result.recommendation,
+          analysis: result.analysis,
+          status:
+            result.match_score >= 80
+              ? 'Strong Match'
+              : result.match_score >= 70
+              ? 'Eligible'
+              : 'Scored',
+        })
+        .eq('id', job.id)
+        .select()
+        .single();
+
+      if (updateError) throw updateError;
+
+      setJobs((prev) =>
+        prev.map((item) => (item.id === job.id ? updatedJob : item))
+      );
+
+      setError('');
+    } catch (err: any) {
+      setError(err.message || 'Failed to analyze job.');
+    } finally {
+      setAnalyzingJobId(null);
+    }
+  };
+
+  const formatDate = (isoString?: string) => {
+    if (!isoString) return '';
     return new Intl.DateTimeFormat('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
-    }).format(d);
+    }).format(new Date(isoString));
   };
 
   return (
@@ -111,6 +234,31 @@ export default function App() {
             Stored Intelligence
           </h2>
           <p className="text-sm text-slate-400">Internal Job Repository</p>
+
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+              Candidate Intelligence Vault
+            </p>
+            <p className="mt-1 text-xs text-slate-600">
+              Profiles loaded: {profiles.length}
+            </p>
+
+            <select
+              value={selectedProfileId}
+              onChange={(e) => setSelectedProfileId(e.target.value)}
+              className="mt-2 w-full rounded-md border border-slate-200 bg-white px-2 py-2 text-xs"
+            >
+              {profiles.length === 0 ? (
+                <option value="">No profiles found</option>
+              ) : (
+                profiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.profile_name || 'Unnamed Profile'}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-2">
@@ -125,14 +273,46 @@ export default function App() {
           ) : (
             jobs.map((job) => (
               <div key={job.id} className="p-3 rounded-lg border mb-2 bg-white">
-                <h3 className="text-sm font-medium text-slate-700">{job.title}</h3>
+                <h3 className="text-sm font-medium text-slate-700">
+                  {job.title}
+                </h3>
+
                 <p className="text-xs text-slate-500 mt-1">
                   {job.company_name ? `${job.company_name} • ` : ''}
                   {formatDate(job.created_at)}
                 </p>
-                <div className="mt-2 text-xs text-slate-600 whitespace-pre-wrap">
+
+                {job.match_score !== null && job.match_score !== undefined && (
+                  <div className="mt-3 rounded-md bg-slate-50 border border-slate-200 p-2">
+                    <p className="text-xs font-semibold text-slate-800">
+                      Match: {job.match_score}% · {job.recommendation || 'Scored'}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      ATS: {job.ats_score ?? '-'} · Leadership:{' '}
+                      {job.leadership_score ?? '-'} · Risk:{' '}
+                      {job.risk_score ?? '-'}
+                    </p>
+                  </div>
+                )}
+
+                {job.analysis && (
+                  <p className="mt-2 text-[11px] text-slate-600 leading-relaxed">
+                    {job.analysis}
+                  </p>
+                )}
+
+                <p className="mt-2 text-xs text-slate-600 whitespace-pre-wrap">
                   {job.description}
-                </div>
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => analyzeJob(job)}
+                  disabled={analyzingJobId === job.id || profiles.length === 0}
+                  className="mt-3 w-full rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                >
+                  {analyzingJobId === job.id ? 'Analyzing...' : 'Analyze Match'}
+                </button>
               </div>
             ))
           )}
@@ -150,7 +330,7 @@ export default function App() {
           <h1 className="text-lg font-semibold tracking-tight text-slate-800">
             Executive Job Intelligence
             <span className="text-blue-600 font-mono text-sm ml-1">
-              v2.0-supabase
+              v2.1-profile-match
             </span>
           </h1>
         </header>
@@ -163,6 +343,16 @@ export default function App() {
           )}
 
           <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+            <div className="mb-5">
+              <h2 className="text-sm font-bold uppercase tracking-widest text-slate-500">
+                Job Ingestion
+              </h2>
+              <p className="text-sm text-slate-500 mt-1">
+                Paste a role here, then run profile-aware match intelligence from
+                the sidebar.
+              </p>
+            </div>
+
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <input
                 type="text"
