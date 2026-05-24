@@ -20,25 +20,18 @@ export default function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState('');
 
-  const fetchJobs = async () => {
-    try {
-      setLoading(true);
-      const res = await fetch('/api/jobs');
-      const data = await res.json();
-      
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to fetch jobs');
-      }
-
-      setJobs(data.jobs);
-      setIsConnected(data.connected);
-      setError('');
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+const fetchJobs = async () => {
+  try {
+    setLoading(true);
+    setJobs([]);
+    setIsConnected(false);
+    setError('');
+  } catch (err: any) {
+    setError(err.message);
+  } finally {
+    setLoading(false);
+  }
+};
 
   useEffect(() => {
     fetchJobs();
@@ -48,43 +41,39 @@ export default function App() {
     e.preventDefault();
     if (!title.trim() || !description.trim()) return;
 
-    try {
-      setSubmitting(true);
-      const res = await fetch('/api/jobs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          title, 
-          description, 
-          company_name: companyName,
-          geography,
-          job_source: jobSource,
-          role_category: roleCategory
-        }),
-      });
-      const data = await res.json();
+ try {
+  setSubmitting(true);
 
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to add job');
-      }
-
-      setTitle('');
-      setCompanyName('');
-      setGeography('');
-      setJobSource('');
-      setRoleCategory('');
-      setDescription('');
-      
-      // Update local state and connection status
-      setJobs((prev) => [data.job, ...prev]);
-      setIsConnected(data.connected);
-      setError('');
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setSubmitting(false);
-    }
+  const data = {
+    job: {
+      id: Date.now(),
+      title,
+      description,
+      company_name: companyName,
+      geography,
+      job_source: jobSource,
+      role_category: roleCategory,
+      created_at: new Date().toISOString()
+    },
+    connected: false
   };
+
+  setTitle('');
+  setCompanyName('');
+  setGeography('');
+  setJobSource('');
+  setRoleCategory('');
+  setDescription('');
+
+  setJobs((prev) => [data.job, ...prev]);
+  setIsConnected(data.connected);
+  setError('');
+} catch (err: any) {
+  setError(err.message);
+} finally {
+  setSubmitting(false);
+}
+};
 
   const formatDate = (isoString: string) => {
     const d = new Date(isoString);
