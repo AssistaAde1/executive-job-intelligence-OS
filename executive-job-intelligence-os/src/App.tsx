@@ -29,6 +29,7 @@ type Job = {
 type Profile = {
   id: string;
   profile_name: string;
+  summary?: string;
   executive_summary?: string;
   industries?: string;
   skills?: string;
@@ -37,6 +38,10 @@ type Profile = {
   constraints?: string;
   preferred_geographies?: string;
   work_modes?: string;
+  associated_titles?: string;
+  strategic_keywords?: string;
+  primary_function?: string;
+  adjacency_functions?: string;
   created_at?: string;
 };
 
@@ -55,6 +60,7 @@ export default function App() {
   const [jobSource, setJobSource] = useState('');
   const [roleCategory, setRoleCategory] = useState('');
   const [description, setDescription] = useState('');
+  const [resumeText, setResumeText] = useState('');
 
   const loadData = async () => {
     try {
@@ -78,14 +84,11 @@ export default function App() {
 
       if (profilesResult.error) throw profilesResult.error;
 
-      const loadedJobs = jobsResult.data || [];
-      const loadedProfiles = profilesResult.data || [];
+      setJobs(jobsResult.data || []);
+      setProfiles(profilesResult.data || []);
 
-      setJobs(loadedJobs);
-      setProfiles(loadedProfiles);
-
-      if (loadedProfiles.length > 0) {
-        setSelectedProfileId(loadedProfiles[0].id);
+      if (profilesResult.data && profilesResult.data.length > 0) {
+        setSelectedProfileId(profilesResult.data[0].id);
       }
 
       setError('');
@@ -160,6 +163,10 @@ export default function App() {
         throw new Error('Please select a profile first.');
       }
 
+      if (!resumeText.trim()) {
+        throw new Error('Please paste resume evidence before analyzing.');
+      }
+
       setAnalyzingJobId(job.id);
 
       const { data, error } = await supabase.functions.invoke('analyze-job', {
@@ -172,6 +179,7 @@ export default function App() {
           job_source: job.job_source || '',
           description: job.description || '',
           profile: selectedProfile,
+          resume_text: resumeText,
         },
       });
 
@@ -330,12 +338,12 @@ export default function App() {
           <h1 className="text-lg font-semibold tracking-tight text-slate-800">
             Executive Job Intelligence
             <span className="text-blue-600 font-mono text-sm ml-1">
-              v2.1-profile-match
+              v2.2-resume-evidence
             </span>
           </h1>
         </header>
 
-        <div className="flex-1 p-8 flex flex-col gap-8 overflow-y-auto w-full max-w-4xl mx-auto">
+        <div className="flex-1 p-8 flex flex-col gap-8 overflow-y-auto w-full max-w-5xl mx-auto">
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg text-sm">
               {error}
@@ -348,8 +356,7 @@ export default function App() {
                 Job Ingestion
               </h2>
               <p className="text-sm text-slate-500 mt-1">
-                Paste a role here, then run profile-aware match intelligence from
-                the sidebar.
+                Paste the job description first. Save it into the intelligence repository.
               </p>
             </div>
 
@@ -401,7 +408,7 @@ export default function App() {
                 required
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="w-full h-64 p-4 rounded-lg border border-slate-200 bg-slate-50 text-sm resize-none"
+                className="w-full h-52 p-4 rounded-lg border border-slate-200 bg-slate-50 text-sm resize-none"
                 placeholder="Paste job description here..."
               />
 
@@ -413,6 +420,28 @@ export default function App() {
                 {submitting ? 'Saving...' : 'Ingest to Intelligence OS'}
               </button>
             </form>
+          </section>
+
+          <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+            <div className="mb-5">
+              <h2 className="text-sm font-bold uppercase tracking-widest text-slate-500">
+                Resume Evidence
+              </h2>
+              <p className="text-sm text-slate-500 mt-1">
+                Paste the canonical resume evidence here before running Analyze Match.
+              </p>
+            </div>
+
+            <textarea
+              value={resumeText}
+              onChange={(e) => setResumeText(e.target.value)}
+              className="w-full h-72 p-4 rounded-lg border border-slate-200 bg-slate-50 text-sm resize-none"
+              placeholder="Paste resume text here..."
+            />
+
+            <p className="text-xs text-slate-400 mt-2">
+              Current evidence length: {resumeText.trim().length} characters
+            </p>
           </section>
         </div>
       </main>
